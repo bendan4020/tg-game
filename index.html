@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Crypto Price Guess</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+}
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  max-width: 500px;
+  padding: 12px 16px;
+}
+.header .pair { font-size: 18px; font-weight: 700; color: #58a6ff; }
+.stats {
+  display: flex;
+  gap: 16px;
+  font-size: 14px;
+}
+.stats span { color: #8b949e; }
+.stats .val { color: #e6edf3; font-weight: 600; }
+#chart-wrap {
+  width: 100%;
+  max-width: 500px;
+  flex: 1;
+  position: relative;
+  padding: 0 8px;
+}
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.controls {
+  width: 100%;
+  max-width: 500px;
+  padding: 12px 16px 24px;
+  display: flex;
+  gap: 12px;
+}
+.btn {
+  flex: 1;
+  padding: 16px;
+  border: none;
+  border-radius: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.1s, opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn:active { transform: scale(0.96); }
+.btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+.btn-up { background: #238636; color: #fff; }
+.btn-down { background: #da3633; color: #fff; }
+.result-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  font-size: 48px;
+  font-weight: 900;
+  text-shadow: 0 2px 20px rgba(0,0,0,0.6);
+  transition: transform 0.3s ease;
+  z-index: 10;
+  pointer-events: none;
+}
+.result-overlay.show { transform: translate(-50%, -50%) scale(1); }
+.result-overlay.correct { color: #3fb950; }
+.result-overlay.wrong { color: #f85149; }
+.streak-bar {
+  width: 100%;
+  max-width: 500px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #8b949e;
+  margin-bottom: 4px;
+}
+.streak-dots {
+  display: flex;
+  gap: 4px;
+}
+.streak-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #30363d;
+  transition: background 0.3s;
+}
+.streak-dot.hit { background: #3fb950; }
+.streak-dot.miss { background: #f85149; }
+/* Game Over */
+.gameover {
+  position: absolute;
+  inset: 0;
+  background: rgba(13,17,23,0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s;
+}
+.gameover.show { opacity: 1; pointer-events: auto; }
+.gameover h2 { font-size: 28px; margin-bottom: 8px; }
+.gameover .final-score { font-size: 56px; font-weight: 900; color: #58a6ff; }
+.gameover .detail { color: #8b949e; margin-top: 8px; font-size: 15px; }
+.gameover .restart-btn {
+  margin-top: 24px;
+  padding: 14px 48px;
+  background: #238636;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="pair">BTC / USDT</div>
+  <div class="stats">
+    <div><span>Score </span><span class="val" id="score">0</span></div>
+    <div><span>Round </span><span class="val" id="round">1</span><span class="val">/10</span></div>
+  </div>
+</div>
+
+<div class="streak-bar">
+  <span>Streak</span>
+  <div class="streak-dots" id="streakDots"></div>
+  <span id="streakMulti"></span>
+</div>
+
+<div id="chart-wrap">
+  <canvas id="chart"></canvas>
+  <div class="result-overlay" id="resultText"></div>
+</div>
+
+<div class="controls">
+  <button class="btn btn-up" id="btnUp" onclick="guess('up')">&#9650; Long</button>
+  <button class="btn btn-down" id="btnDown" onclick="guess('down')">&#9660; Short</button>
+</div>
+
+<div class="gameover" id="gameover">
+  <h2>Game Over</h2>
+  <div class="final-score" id="finalScore">0</div>
+  <div class="detail" id="finalDetail"></div>
+  <button class="restart-btn" onclick="startGame()">Play Again</button>
+</div>
+
+<script>
+// ── Config ──
+const TOTAL_ROUNDS = 10;
+const CANDLES_SHOW = 20;    // visible candles before guess
+const CANDLES_REVEAL = 5;   // candles revealed after guess
+const BASE_POINTS = 10;
+
+// ── State ──
+let allCandles = [];
+let revealIndex = 0;
+let score = 0;
+let round = 0;
+let streak = 0;
+let maxStreak = 0;
+let correctCount = 0;
+let roundHistory = [];
+let animating = false;
+
+// ── Canvas ──
+const canvas = document.getElementById('chart');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  const wrap = document.getElementById('chart-wrap');
+  const dpr = window.devicePixelRatio || 1;
+  W = wrap.clientWidth;
+  H = wrap.clientHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+window.addEventListener('resize', resize);
+
+// ── Generate candles ──
+function genCandles(count) {
+  const candles = [];
+  let price = 60000 + Math.random() * 10000;
+  for (let i = 0; i < count; i++) {
+    const vol = price * (0.005 + Math.random() * 0.02);
+    const open = price;
+    const close = open + (Math.random() - 0.48) * vol;
+    const high = Math.max(open, close) + Math.random() * vol * 0.5;
+    const low = Math.min(open, close) - Math.random() * vol * 0.5;
+    candles.push({ o: open, h: high, l: low, c: close });
+    price = close;
+  }
+  return candles;
+}
+
+// ── Draw ──
+function draw() {
+  if (!W) return;
+  ctx.clearRect(0, 0, W, H);
+
+  const visible = allCandles.slice(0, revealIndex);
+  if (visible.length === 0) return;
+
+  const pad = { top: 20, bottom: 20, left: 10, right: 10 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+
+  let hi = -Infinity, lo = Infinity;
+  visible.forEach(c => { hi = Math.max(hi, c.h); lo = Math.min(lo, c.l); });
+  const range = hi - lo || 1;
+  hi += range * 0.05;
+  lo -= range * 0.05;
+  const totalRange = hi - lo;
+
+  const candleW = chartW / (visible.length + 1);
+  const bodyW = Math.max(candleW * 0.6, 2);
+
+  const toY = v => pad.top + (1 - (v - lo) / totalRange) * chartH;
+
+  // grid lines
+  ctx.strokeStyle = '#161b22';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = pad.top + (chartH / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+  }
+
+  // divider line between shown and revealed
+  if (revealIndex > CANDLES_SHOW && round <= TOTAL_ROUNDS) {
+    const dx = pad.left + CANDLES_SHOW * candleW + candleW * 0.5;
+    ctx.strokeStyle = '#30363d';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(dx, pad.top);
+    ctx.lineTo(dx, H - pad.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#484f58';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('Your guess', dx + 4, pad.top + 14);
+  }
+
+  // candles
+  visible.forEach((c, i) => {
+    const x = pad.left + i * candleW + candleW * 0.5;
+    const bull = c.c >= c.o;
+    const isRevealed = i >= CANDLES_SHOW;
+    const color = bull ? '#3fb950' : '#f85149';
+    const alpha = isRevealed ? 0.85 : 1;
+
+    ctx.globalAlpha = alpha;
+
+    // wick
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, toY(c.h));
+    ctx.lineTo(x, toY(c.l));
+    ctx.stroke();
+
+    // body
+    const yTop = toY(Math.max(c.o, c.c));
+    const yBot = toY(Math.min(c.o, c.c));
+    const bodyH = Math.max(yBot - yTop, 1);
+    ctx.fillStyle = color;
+    ctx.fillRect(x - bodyW / 2, yTop, bodyW, bodyH);
+
+    ctx.globalAlpha = 1;
+  });
+
+  // current price label
+  const last = visible[visible.length - 1];
+  const priceY = toY(last.c);
+  const priceColor = last.c >= last.o ? '#3fb950' : '#f85149';
+  ctx.fillStyle = priceColor;
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(last.c.toFixed(0), W - pad.right - 2, priceY - 6);
+  ctx.textAlign = 'left';
+}
+
+// ── Guess ──
+function guess(dir) {
+  if (animating) return;
+  animating = true;
+  disableButtons(true);
+
+  const beforePrice = allCandles[CANDLES_SHOW - 1].c;
+  const afterPrice = allCandles[CANDLES_SHOW + CANDLES_REVEAL - 1].c;
+  const wentUp = afterPrice > beforePrice;
+  const correct = (dir === 'up' && wentUp) || (dir === 'down' && !wentUp);
+
+  // Animate reveal
+  let step = 0;
+  const interval = setInterval(() => {
+    revealIndex = CANDLES_SHOW + step + 1;
+    draw();
+    step++;
+    if (step >= CANDLES_REVEAL) {
+      clearInterval(interval);
+      showResult(correct);
+    }
+  }, 200);
+}
+
+function showResult(correct) {
+  if (correct) {
+    streak++;
+    correctCount++;
+    const multi = Math.min(streak, 5);
+    const pts = BASE_POINTS * multi;
+    score += pts;
+    roundHistory.push('hit');
+  } else {
+    streak = 0;
+    roundHistory.push('miss');
+  }
+  maxStreak = Math.max(maxStreak, streak);
+
+  // Update UI
+  document.getElementById('score').textContent = score;
+  updateStreakDots();
+
+  // Flash result
+  const el = document.getElementById('resultText');
+  el.textContent = correct ? '+' + (BASE_POINTS * Math.min(correct ? streak : 0, 5)) || '+10' : 'MISS';
+  if (correct) {
+    const multi = Math.min(streak, 5);
+    el.textContent = '+' + (BASE_POINTS * multi);
+  }
+  el.className = 'result-overlay show ' + (correct ? 'correct' : 'wrong');
+
+  setTimeout(() => {
+    el.className = 'result-overlay';
+    round++;
+
+    if (round >= TOTAL_ROUNDS) {
+      endGame();
+    } else {
+      nextRound();
+    }
+  }, 1200);
+}
+
+function nextRound() {
+  document.getElementById('round').textContent = round + 1;
+  allCandles = genCandles(CANDLES_SHOW + CANDLES_REVEAL);
+  revealIndex = CANDLES_SHOW;
+  draw();
+  animating = false;
+  disableButtons(false);
+}
+
+function endGame() {
+  animating = false;
+  document.getElementById('finalScore').textContent = score;
+  document.getElementById('finalDetail').textContent =
+    correctCount + '/' + TOTAL_ROUNDS + ' correct  |  Best streak: ' + maxStreak;
+  document.getElementById('gameover').classList.add('show');
+
+  // Send score to Telegram
+  if (window.TelegramGameProxy) {
+    TelegramGameProxy.shareScore();
+  }
+}
+
+function disableButtons(disabled) {
+  document.getElementById('btnUp').disabled = disabled;
+  document.getElementById('btnDown').disabled = disabled;
+}
+
+function updateStreakDots() {
+  const container = document.getElementById('streakDots');
+  container.innerHTML = '';
+  for (let i = 0; i < TOTAL_ROUNDS; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'streak-dot';
+    if (i < roundHistory.length) {
+      dot.classList.add(roundHistory[i]);
+    }
+    container.appendChild(dot);
+  }
+  const multi = Math.min(streak, 5);
+  document.getElementById('streakMulti').textContent =
+    streak > 1 ? 'x' + multi + ' combo!' : '';
+}
+
+// ── Start ──
+function startGame() {
+  score = 0;
+  round = 0;
+  streak = 0;
+  maxStreak = 0;
+  correctCount = 0;
+  roundHistory = [];
+  document.getElementById('score').textContent = '0';
+  document.getElementById('round').textContent = '1';
+  document.getElementById('gameover').classList.remove('show');
+  updateStreakDots();
+  allCandles = genCandles(CANDLES_SHOW + CANDLES_REVEAL);
+  revealIndex = CANDLES_SHOW;
+  resize();
+  disableButtons(false);
+  animating = false;
+}
+
+startGame();
+</script>
+</body>
+</html>
