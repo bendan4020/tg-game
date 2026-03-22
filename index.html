@@ -196,10 +196,11 @@ canvas {
   padding: 12px 32px;
   background: #1d63ed;
   color: #fff;
+  border: none;
   border-radius: 12px;
   font-size: 15px;
   font-weight: 700;
-  text-decoration: none;
+  cursor: pointer;
 }
 </style>
 </head>
@@ -240,7 +241,7 @@ canvas {
   <div class="final-score" id="finalScore">0</div>
   <div class="detail" id="finalDetail"></div>
   <button class="restart-btn" onclick="startGame()">Play Again</button>
-  <a id="claimBtn" class="claim-btn" target="_blank">🎁 Claim Points in Bot</a>
+  <button id="claimBtn" class="claim-btn" onclick="claimPoints()">🎁 Claim Points in Bot</button>
 </div>
 
 <script>
@@ -610,8 +611,6 @@ function endGame() {
   // Show Claim Points button if token is available
   const claimBtn = document.getElementById('claimBtn');
   if (GAME_TOKEN && BOT_NAME) {
-    const link = `https://t.me/${BOT_NAME}?start=gs_${GAME_TOKEN}_${score}`;
-    claimBtn.href = link;
     claimBtn.style.display = 'block';
   } else {
     claimBtn.style.display = 'none';
@@ -639,6 +638,17 @@ function updateStreakDots() {
   const multi = Math.min(streak, 5);
   document.getElementById('streakMulti').textContent =
     streak > 1 ? 'x' + multi + ' combo!' : '';
+}
+
+// ── Claim Points ──
+function claimPoints() {
+  const url = `https://t.me/${BOT_NAME}?start=gs_${GAME_TOKEN}_${score}`;
+  // Try Telegram WebApp first, fallback to location
+  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
+    window.Telegram.WebApp.openTelegramLink(url);
+  } else {
+    window.location.href = url;
+  }
 }
 
 // ── Start ──
