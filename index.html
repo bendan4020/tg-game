@@ -690,6 +690,9 @@ function startGame() {
   document.getElementById('round').textContent = '1';
   document.getElementById('gameover').classList.remove('show');
   document.getElementById('eduPanel').classList.remove('show');
+  document.getElementById('claimSection').style.display = 'none';
+  document.getElementById('noClaimMsg').style.display = 'none';
+  document.getElementById('copyMsg').style.display = 'none';
   updateStreakDots();
   allCandles = genCandles(CANDLES_SHOW + CANDLES_REVEAL);
   revealIndex = CANDLES_SHOW;
