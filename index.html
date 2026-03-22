@@ -190,6 +190,17 @@ canvas {
   font-weight: 700;
   cursor: pointer;
 }
+.gameover .claim-btn {
+  display: none;
+  margin-top: 12px;
+  padding: 12px 32px;
+  background: #1d63ed;
+  color: #fff;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+}
 </style>
 </head>
 <body>
@@ -229,6 +240,7 @@ canvas {
   <div class="final-score" id="finalScore">0</div>
   <div class="detail" id="finalDetail"></div>
   <button class="restart-btn" onclick="startGame()">Play Again</button>
+  <a id="claimBtn" class="claim-btn" target="_blank">🎁 Claim Points in Bot</a>
 </div>
 
 <script>
@@ -237,6 +249,11 @@ const TOTAL_ROUNDS = 10;
 const CANDLES_SHOW = 20;    // visible candles before guess
 const CANDLES_REVEAL = 5;   // candles revealed after guess
 const BASE_POINTS = 10;
+
+// ── URL Params (token & bot passed by Telegram bot) ──
+const _params = new URLSearchParams(window.location.search);
+const GAME_TOKEN = _params.get('token') || '';
+const BOT_NAME   = _params.get('bot')   || '';
 
 // ── State ──
 let allCandles = [];
@@ -589,12 +606,18 @@ function endGame() {
   document.getElementById('finalScore').textContent = score;
   document.getElementById('finalDetail').textContent =
     correctCount + '/' + TOTAL_ROUNDS + ' correct  |  Best streak: ' + maxStreak;
-  document.getElementById('gameover').classList.add('show');
 
-  // Send score to Telegram
-  if (window.TelegramGameProxy) {
-    TelegramGameProxy.shareScore();
+  // Show Claim Points button if token is available
+  const claimBtn = document.getElementById('claimBtn');
+  if (GAME_TOKEN && BOT_NAME) {
+    const link = `https://t.me/${BOT_NAME}?start=gs_${GAME_TOKEN}_${score}`;
+    claimBtn.href = link;
+    claimBtn.style.display = 'block';
+  } else {
+    claimBtn.style.display = 'none';
   }
+
+  document.getElementById('gameover').classList.add('show');
 }
 
 function disableButtons(disabled) {
