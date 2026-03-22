@@ -642,12 +642,13 @@ function updateStreakDots() {
 
 // ── Claim Points ──
 function claimPoints() {
-  const url = `https://t.me/${BOT_NAME}?start=gs_${GAME_TOKEN}_${score}`;
-  // Try Telegram WebApp first, fallback to location
+  const tgScheme  = `tg://resolve?domain=${BOT_NAME}&start=gs_${GAME_TOKEN}_${score}`;
+  const httpsUrl  = `https://t.me/${BOT_NAME}?start=gs_${GAME_TOKEN}_${score}`;
+
   if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
-    window.Telegram.WebApp.openTelegramLink(url);
+    window.Telegram.WebApp.openTelegramLink(httpsUrl);
   } else {
-    window.location.href = url;
+    window.location.href = tgScheme;
   }
 }
 
