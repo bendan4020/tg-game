@@ -14,7 +14,7 @@ body {
   flex-direction: column;
   align-items: center;
   min-height: 100vh;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 .header {
   display: flex;
@@ -108,6 +108,59 @@ canvas {
 }
 .streak-dot.hit { background: #3fb950; }
 .streak-dot.miss { background: #f85149; }
+/* Education panel */
+.edu-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #161b22;
+  border-top: 2px solid #30363d;
+  border-radius: 16px 16px 0 0;
+  padding: 16px 20px 32px;
+  z-index: 30;
+  transform: translateY(110%);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.edu-panel.show { transform: translateY(0); }
+.edu-pattern-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f85149;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.edu-pattern-name .tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-weight: 600;
+}
+.edu-pattern-name .tag-bull { background: #1a4731; color: #3fb950; }
+.edu-pattern-name .tag-bear { background: #3d1a1a; color: #f85149; }
+.edu-body {
+  font-size: 13px;
+  color: #8b949e;
+  line-height: 1.55;
+  margin-bottom: 14px;
+}
+.edu-body strong { color: #e6edf3; }
+.edu-got-it {
+  width: 100%;
+  padding: 12px;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  color: #e6edf3;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.edu-got-it:active { background: #30363d; }
+
 /* Game Over */
 .gameover {
   position: absolute;
@@ -163,6 +216,12 @@ canvas {
 <div class="controls">
   <button class="btn btn-up" id="btnUp" onclick="guess('up')">&#9650; Long</button>
   <button class="btn btn-down" id="btnDown" onclick="guess('down')">&#9660; Short</button>
+</div>
+
+<div class="edu-panel" id="eduPanel">
+  <div class="edu-pattern-name" id="eduTitle"></div>
+  <div class="edu-body" id="eduBody"></div>
+  <button class="edu-got-it" onclick="dismissEdu()">Got it — Next Round →</button>
 </div>
 
 <div class="gameover" id="gameover">
@@ -313,6 +372,141 @@ function draw() {
   ctx.textAlign = 'left';
 }
 
+// ── Pattern Detection ──
+function detectPattern(candles) {
+  // Use the last 6 candles before the guess point
+  const slice = candles.slice(Math.max(0, CANDLES_SHOW - 6), CANDLES_SHOW);
+  const last = slice[slice.length - 1];
+  const prev = slice[slice.length - 2];
+  const last3 = slice.slice(-3);
+  const last5 = slice.slice(-5);
+
+  const bodySize = c => Math.abs(c.c - c.o);
+  const range = c => c.h - c.l;
+  const isBull = c => c.c > c.o;
+  const isBear = c => c.c < c.o;
+  const upperWick = c => c.h - Math.max(c.o, c.c);
+  const lowerWick = c => Math.min(c.o, c.c) - c.l;
+
+  // Doji: body < 15% of total range
+  if (bodySize(last) < range(last) * 0.15 && range(last) > 0) {
+    const prevBull = last5.slice(0, 4).filter(isBull).length >= 3;
+    const prevBear = last5.slice(0, 4).filter(isBear).length >= 3;
+    if (prevBull) return {
+      name: 'Doji (Top)', signal: 'bear',
+      emoji: '⚠️',
+      explanation: 'A <strong>Doji</strong> appeared at the top of an uptrend — open and close are nearly equal, meaning buyers and sellers are in balance and buying momentum is exhausted. This is a classic <strong>trend reversal warning</strong>: the market often turns down after this signal.'
+    };
+    if (prevBear) return {
+      name: 'Doji (Bottom)', signal: 'bull',
+      emoji: '🕯️',
+      explanation: 'A <strong>Doji</strong> appeared at the bottom of a downtrend — neither side dominates and sellers can no longer push price lower. This signals <strong>weakening sell pressure</strong> and is often seen at local bottoms, suggesting a potential bounce.'
+    };
+  }
+
+  // Hammer: lower wick >= 2x body, small upper wick, in downtrend
+  if (lowerWick(last) >= bodySize(last) * 2 && upperWick(last) < bodySize(last) * 0.5) {
+    const prevBear = last5.slice(0, 4).filter(isBear).length >= 3;
+    if (prevBear) return {
+      name: 'Hammer', signal: 'bull',
+      emoji: '🔨',
+      explanation: 'A <strong>Hammer</strong> has a small body and a long lower wick. Price dropped sharply during the candle but buyers stepped in and pushed it back up. This shows <strong>strong buying interest at low prices</strong> — bears tried to push lower but failed. A classic bullish reversal signal in a downtrend.'
+    };
+  }
+
+  // Shooting star: upper wick >= 2x body, small lower wick, in uptrend
+  if (upperWick(last) >= bodySize(last) * 2 && lowerWick(last) < bodySize(last) * 0.5) {
+    const prevBull = last5.slice(0, 4).filter(isBull).length >= 3;
+    if (prevBull) return {
+      name: 'Shooting Star', signal: 'bear',
+      emoji: '🌠',
+      explanation: 'A <strong>Shooting Star</strong> has a small body and a long upper wick. Price surged during the candle but sellers pushed it back down hard. This signals <strong>heavy selling pressure at the top</strong> — bulls ran out of steam. A classic bearish reversal signal in an uptrend.'
+    };
+  }
+
+  // Bullish engulfing
+  if (prev && isBear(prev) && isBull(last) &&
+      last.c > prev.o && last.o < prev.c) {
+    return {
+      name: 'Bullish Engulfing', signal: 'bull',
+      emoji: '📈',
+      explanation: '<strong>Bullish Engulfing</strong>: the green candle\'s body completely covers the previous red candle\'s body. Buyers reversed the entire prior session\'s loss in a single candle, showing a <strong>powerful shift in momentum to the upside</strong>.'
+    };
+  }
+
+  // Bearish engulfing
+  if (prev && isBull(prev) && isBear(last) &&
+      last.o > prev.c && last.c < prev.o) {
+    return {
+      name: 'Bearish Engulfing', signal: 'bear',
+      emoji: '📉',
+      explanation: '<strong>Bearish Engulfing</strong>: the red candle\'s body completely swallows the previous green candle\'s body. Sellers wiped out the entire prior session\'s gain in one candle, signaling a <strong>decisive shift in control to the downside</strong>.'
+    };
+  }
+
+  // Three white soldiers
+  if (last3.every(isBull) && last3[1].c > last3[0].c && last3[2].c > last3[1].c) {
+    return {
+      name: 'Three White Soldiers', signal: 'bull',
+      emoji: '🪖',
+      explanation: '<strong>Three White Soldiers</strong>: three consecutive green candles, each closing higher than the last with little upper wick. This is a strong signal of <strong>sustained buying momentum</strong> — bulls are firmly in control and the uptrend is likely to continue.'
+    };
+  }
+
+  // Three black crows
+  if (last3.every(isBear) && last3[1].c < last3[0].c && last3[2].c < last3[1].c) {
+    return {
+      name: 'Three Black Crows', signal: 'bear',
+      emoji: '🪶',
+      explanation: '<strong>Three Black Crows</strong>: three consecutive red candles, each closing lower than the last. This is a strong signal of <strong>sustained selling pressure</strong> — bears are in full control and the downtrend is likely to continue.'
+    };
+  }
+
+  // Fallback: trend
+  const bullCount = last5.filter(isBull).length;
+  if (bullCount >= 4) return {
+    name: 'Strong Uptrend', signal: 'bull',
+    emoji: '📊',
+    explanation: '4 or more of the last 5 candles are green, showing a clear upward trend. The core principle of trend trading is <strong>"the trend is your friend"</strong> — going long with the trend has a higher probability of success than fighting it.'
+  };
+  if (bullCount <= 1) return {
+    name: 'Strong Downtrend', signal: 'bear',
+    emoji: '📊',
+    explanation: '4 or more of the last 5 candles are red, showing a clear downward trend. <strong>Don\'t try to catch a falling knife</strong> — trading with the trend by going short has a much higher win rate than trying to call the bottom.'
+  };
+
+  // Generic
+  const actualWentUp = candles[CANDLES_SHOW + CANDLES_REVEAL - 1].c > candles[CANDLES_SHOW - 1].c;
+  return actualWentUp ? {
+    name: 'Slight Bullish Bias', signal: 'bull',
+    emoji: '⚖️',
+    explanation: 'The market looks mixed, but subtle clues like <strong>candles closing near their highs and short lower wicks</strong> suggest buyers have a slight edge. In choppy markets, these small details can tip the probability in one direction.'
+  } : {
+    name: 'Slight Bearish Bias', signal: 'bear',
+    emoji: '⚖️',
+    explanation: 'The market looks mixed, but subtle clues like <strong>candles closing near their lows and long upper wicks</strong> suggest sellers have a slight edge. In choppy markets, these small details can tip the probability in one direction.'
+  };
+}
+
+function showEduPanel(pattern) {
+  const titleEl = document.getElementById('eduTitle');
+  const bodyEl = document.getElementById('eduBody');
+  const isBull = pattern.signal === 'bull';
+  titleEl.innerHTML = `${pattern.emoji} ${pattern.name} <span class="tag ${isBull ? 'tag-bull' : 'tag-bear'}">${isBull ? 'Bullish ↑' : 'Bearish ↓'}</span>`;
+  bodyEl.innerHTML = pattern.explanation;
+  document.getElementById('eduPanel').classList.add('show');
+}
+
+function dismissEdu() {
+  document.getElementById('eduPanel').classList.remove('show');
+  round++;
+  if (round >= TOTAL_ROUNDS) {
+    endGame();
+  } else {
+    nextRound();
+  }
+}
+
 // ── Guess ──
 function guess(dir) {
   if (animating) return;
@@ -366,12 +560,17 @@ function showResult(correct) {
 
   setTimeout(() => {
     el.className = 'result-overlay';
-    round++;
-
-    if (round >= TOTAL_ROUNDS) {
-      endGame();
+    if (correct) {
+      round++;
+      if (round >= TOTAL_ROUNDS) {
+        endGame();
+      } else {
+        nextRound();
+      }
     } else {
-      nextRound();
+      // Show educational panel; round advance happens in dismissEdu()
+      const pattern = detectPattern(allCandles);
+      showEduPanel(pattern);
     }
   }, 1200);
 }
@@ -430,6 +629,7 @@ function startGame() {
   document.getElementById('score').textContent = '0';
   document.getElementById('round').textContent = '1';
   document.getElementById('gameover').classList.remove('show');
+  document.getElementById('eduPanel').classList.remove('show');
   updateStreakDots();
   allCandles = genCandles(CANDLES_SHOW + CANDLES_REVEAL);
   revealIndex = CANDLES_SHOW;
