@@ -241,7 +241,16 @@ canvas {
   <div class="final-score" id="finalScore">0</div>
   <div class="detail" id="finalDetail"></div>
   <button class="restart-btn" onclick="startGame()">Play Again</button>
-  <button id="claimBtn" class="claim-btn" onclick="claimPoints()">🎁 Claim Points in Bot</button>
+  <div id="noClaimMsg" style="display:none; margin-top:14px; font-size:13px; color:#8b949e; text-align:center;">
+    Get <strong style="color:#e6edf3;">8/10</strong> correct to earn a claim code 🎯
+  </div>
+  <div id="claimSection" style="display:none; margin-top:14px; text-align:center;">
+    <div style="font-size:12px; color:#8b949e; margin-bottom:6px;">Send this code to the bot to claim your points:</div>
+    <div id="claimCode" style="font-family:monospace; font-size:13px; background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:8px 12px; color:#58a6ff; margin-bottom:8px; word-break:break-all;"></div>
+    <button class="claim-btn" onclick="copyCode()">📋 Copy Code</button>
+    <div id="copyMsg" style="font-size:12px; color:#3fb950; margin-top:6px; display:none;">Copied! Now paste it in @<span id="botNameSpan"></span> private chat.</div>
+  </div>
+  <button class="restart-btn" onclick="startGame()">Play Again</button>
 </div>
 
 <script>
@@ -253,8 +262,10 @@ const BASE_POINTS = 10;
 
 // ── URL Params (token & bot passed by Telegram bot) ──
 const _params = new URLSearchParams(window.location.search);
-const GAME_TOKEN = _params.get('token') || '';
-const BOT_NAME   = _params.get('bot')   || '';
+const GAME_TOKEN    = _params.get('token') || '';
+const BOT_NAME      = _params.get('bot')   || '';
+const SCORE_EP      = _params.get('ep')    || '';
+const IS_FIRST      = _params.get('first') !== '0';  // true = first play today
 
 // ── State ──
 let allCandles = [];
@@ -608,12 +619,22 @@ function endGame() {
   document.getElementById('finalDetail').textContent =
     correctCount + '/' + TOTAL_ROUNDS + ' correct  |  Best streak: ' + maxStreak;
 
-  // Show Claim Points button if token is available
-  const claimBtn = document.getElementById('claimBtn');
-  if (GAME_TOKEN && BOT_NAME) {
-    claimBtn.style.display = 'block';
+  // Show claim code based on eligibility
+  const claimSection = document.getElementById('claimSection');
+  const claimCode = document.getElementById('claimCode');
+  const noClaimMsg = document.getElementById('noClaimMsg');
+  const eligible = GAME_TOKEN && BOT_NAME && (IS_FIRST || correctCount >= 8);
+
+  if (eligible) {
+    const code = `gs_${GAME_TOKEN}_${score}_${correctCount}`;
+    claimCode.textContent = code;
+    claimSection.style.display = 'block';
+    if (noClaimMsg) noClaimMsg.style.display = 'none';
+  } else if (GAME_TOKEN && !IS_FIRST && correctCount < 8) {
+    claimSection.style.display = 'none';
+    if (noClaimMsg) noClaimMsg.style.display = 'block';
   } else {
-    claimBtn.style.display = 'none';
+    claimSection.style.display = 'none';
   }
 
   document.getElementById('gameover').classList.add('show');
@@ -640,16 +661,22 @@ function updateStreakDots() {
     streak > 1 ? 'x' + multi + ' combo!' : '';
 }
 
-// ── Claim Points ──
-function claimPoints() {
-  const tgScheme  = `tg://resolve?domain=${BOT_NAME}&start=gs_${GAME_TOKEN}_${score}`;
-  const httpsUrl  = `https://t.me/${BOT_NAME}?start=gs_${GAME_TOKEN}_${score}`;
-
-  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
-    window.Telegram.WebApp.openTelegramLink(httpsUrl);
-  } else {
-    window.location.href = tgScheme;
-  }
+// ── Copy Code ──
+function copyCode() {
+  const code = document.getElementById('claimCode').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    document.getElementById('botNameSpan').textContent = BOT_NAME;
+    document.getElementById('copyMsg').style.display = 'block';
+  }).catch(() => {
+    // fallback: select the text manually
+    const el = document.getElementById('claimCode');
+    const range = document.createRange();
+    range.selectNode(el);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    document.getElementById('botNameSpan').textContent = BOT_NAME;
+    document.getElementById('copyMsg').style.display = 'block';
+  });
 }
 
 // ── Start ──
